@@ -1,0 +1,111 @@
+#pragma kernel CSMain
+
+struct VertexParam {
+    float3 ori;  // Original vertex position
+    float3 diff; // Difference from pivot
+    float3 p;    // Projected point in lattice
+    float3 p0;   // Lattice pivot point
+    float s, t, u; // Local coordinates
+};
+
+// Buffers
+RWStructuredBuffer<VertexParam> vertexParam;  
+StructuredBuffer<float3> worldVertices;     
+StructuredBuffer<float3> controlPoints;     
+StructuredBuffer<float3> defaultControlPoints;  
+RWStructuredBuffer<float3> deformedVertices;  
+
+// Lattice parameters
+float3 latticePivotPoint;
+int vertexCount;
+int3 gridSize;
+float3 minVertex, maxVertex;
+float3 S, T, U;
+
+// Compute min and max control points
+void Parameterize() {
+    minVertex = defaultControlPoints[0];
+    maxVertex = defaultControlPoints[0];
+
+    for (int i = 1; i < gridSize.x * gridSize.y * gridSize.z; i++) {
+        minVertex = min(minVertex, defaultControlPoints[i]);
+        maxVertex = max(maxVertex, defaultControlPoints[i]);
+    }
+     
+    // Compute bounding vectors
+    S = float3(maxVertex.x - minVertex.x, 0.0f, 0.0f);
+    T = float3(0.0f, maxVertex.y - minVertex.y, 0.0f);
+    U = float3(0.0f, 0.0f, maxVertex.z - minVertex.z);
+}
+
+// Compute binomial coefficient iteratively
+float BinomialCoefficient(int n, int k) {
+    float result = 1.0;
+    for (int i = 0; i < k; i++) {
+        result *= (n - i) / (float)(i + 1);
+    }
+    return result;
+}
+
+// Compute Bernstein polynomial
+float Bernstein(int n, int i, float t) {
+    return BinomialCoefficient(n, i) * pow(t, i) * pow(1 - t, n - i);
+}
+
+// Compute STU local coordinates
+void ComputeSTU(uint i) {
+    float3 X_X0 = worldVertices[i] - latticePivotPoint;
+    vertexParam[i].ori = worldVertices[i];
+    vertexParam[i].diff = X_X0;
+
+    // Compute coordinate transformation using cross products
+    float3 cross_TU = cross(T, U);
+    float3 cross_SU = cross(S, U);
+    float3 cross_TS = cross(T, S);
+
+    vertexParam[i].s = dot(cross_TU, X_X0) / dot(cross_TU, S);
+    vertexParam[i].t = dot(cross_SU, X_X0) / dot(cross_SU, T);
+    vertexParam[i].u = dot(cross_TS, X_X0) / dot(cross_TS, U);
+
+    vertexParam[i].p = latticePivotPoint + vertexParam[i].s * S + vertexParam[i].t * T + vertexParam[i].u * U;
+    vertexParam[i].p0 = latticePivotPoint;
+}
+
+// Main compute function
+[numthreads(256, 1, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID) {
+    if (id.x >= vertexCount) return;
+
+    Parameterize();
+    ComputeSTU(id.x);
+
+    float3 stu = float3(vertexParam[id.x].s, vertexParam[id.x].t, vertexParam[id.x].u);
+
+    // Check if vertex is inside the deformation lattice
+    bool inside = (stu.x >= 0 && stu.x <= 1) &&
+                  (stu.y >= 0 && stu.y <= 1) &&
+                  (stu.z >= 0 && stu.z <= 1);
+
+    if (inside) {
+        float3 deformation = float3(0, 0, 0);
+
+        // Apply Free-Form Deformation (FFD)
+        for (int i = 0; i < gridSize.x; i++) {
+            for (int j = 0; j < gridSize.y; j++) {  
+                for (int k = 0; k < gridSize.z; k++) {
+                    int idx = i * gridSize.y * gridSize.z + j * gridSize.z + k;
+                    float weight = Bernstein(gridSize.x - 1, i, stu.x) *
+                                   Bernstein(gridSize.y - 1, j, stu.y) *
+                                   Bernstein(gridSize.z - 1, k, stu.z);
+                    
+                    deformation += weight * (controlPoints[idx]);
+                }
+            }
+        }
+
+        deformedVertices[id.x] = deformation;
+    } else {
+        // Keep vertex unchanged if outside the deformation lattice
+        deformedVertices[id.x] = worldVertices[id.x];
+    }
+}
