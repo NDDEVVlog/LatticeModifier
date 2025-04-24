@@ -1,0 +1,400 @@
+#pragma kernel Kernel_Init
+#pragma kernel Kernel_Diffusion
+#pragma kernel Kernel_Advection
+
+#pragma kernel Kernel_UserInput_Add
+#pragma kernel Kernel_UserInput_Move
+#pragma kernel Kernel_FadeDensity
+
+#pragma kernel Kernel_Divergence
+#pragma kernel Kernel_SubtractGradient
+#pragma kernel Kernel_Jacobi
+#pragma kernel Kernel_LaplaceProject
+//#pragma kernel Kernel_StartFlowFromCenter
+
+#define NUM_SPHERES 100
+#define size 1024
+//==========================Vars=================================//
+
+float backgroundAlpha;
+float _deltaTime;
+float Densityfade;
+float Curl;
+uint PosAmount;
+uint pixelSize;
+
+int Disables[NUM_SPHERES];
+float2 spherePositions[NUM_SPHERES]; // Define the number of spheres as NUM_SPHERES
+float2 spherePos;
+float4 dyeColors[NUM_SPHERES];
+float4 dyeColor;
+float2 spheresVelocity[NUM_SPHERES];
+float2 sphereVelocity;
+
+float forceIntensity;
+float forceRange;
+float BrushDensity;
+
+//Neighbour pixel offsets: top,bottom,left,right
+#define off_T int2(0,1);
+#define off_B int2(0,-1);
+#define off_L int2(-1,0);
+#define off_R int2(1,0);
+
+float3 BlendColor(float3 col1, float3 col2, float factor)
+{
+    float3 result = lerp(col1,col2,factor);
+    return result;
+}
+
+float2 pixelArt(float2 uv, float pixelSample)
+{
+    float2 quantizedUV = floor(uv * pixelSample) / pixelSample;
+    return quantizedUV;
+}
+
+float2 pixelArtSobel(float2 uv, float pixelSample, float pixelOffsetX, float pixelOffsetY)
+{
+    float pixelScale = pixelSample;
+    float2 quantizedUV = floor(uv * pixelScale) / pixelScale;
+    quantizedUV -= float2(pixelOffsetX / 2, pixelOffsetY) / pixelScale;
+    return quantizedUV;
+}
+
+//===========================Texture================================//
+
+Texture2D<float> ObstacleTex; //0 is obstacle, 1 is fluid
+RWTexture2D<float2> VelocityTex;
+RWTexture2D<float4> DensityTex; //r,g,b is dye color, a is density
+RWTexture2D<float4> HeightTex; //simply white color but alpha :D
+RWTexture2D<float> DivergenceTex;
+RWTexture2D<float> PressureTex;
+
+float randomValue(float RangeMin, float RangeMax , float seed = 1)
+{
+    seed = frac(sin(seed) * 43758.5453);
+    float random = seed * (RangeMax - RangeMin) + RangeMin;
+    return random;
+}
+
+//===========================================================
+
+[numthreads(16,16,1)]
+void Kernel_Init (uint3 id : SV_DispatchThreadid)
+{
+    DensityTex[id.xy] = 0;
+    HeightTex[id.xy] = 0;
+    VelocityTex[id.xy] = 0;
+    PressureTex[id.xy] = 0;
+    DivergenceTex[id.xy] = 0;
+}
+
+
+[numthreads(16,16,1)]
+void Kernel_Advection (uint3 id : SV_DispatchThreadid)
+{		
+    float2 velocity = VelocityTex[id.xy].xy;
+    float obstacle = ObstacleTex[id.xy].x;
+
+    //Get previous id for Prev value -> current value
+    float2 displacement = velocity * _deltaTime * size;
+    int2 previd = round(float2(id.xy) - displacement);
+
+    //Advect density
+    float4 density = DensityTex[id.xy];
+    float4 densityPrev = DensityTex[previd];
+    density.a = densityPrev.a * obstacle;
+
+    //Advect dye color
+    density.rgb = BlendColor(density.rgb, densityPrev.rgb, 0.8f);
+    DensityTex[id.xy] = density;
+
+    //Advect velocity
+    VelocityTex[id.xy] = VelocityTex[previd] * obstacle;
+}
+[numthreads(16,16,1)]
+void Kernel_Diffusion (uint3 Id : SV_DispatchThreadid)
+{		
+    //Grid positions
+    int2 id = int2(Id.xy);
+    int2 id_T = id + off_T;
+    int2 id_B = id + off_B;
+    int2 id_L = id + off_L;
+    int2 id_R = id + off_R;
+
+    //Obstacle
+    float obstacle = ObstacleTex[id].x;
+    float obstacle_T = ObstacleTex[id_T].x;
+    float obstacle_R = ObstacleTex[id_R].x;
+    float obstacle_B = ObstacleTex[id_B].x;
+    float obstacle_L = ObstacleTex[id_L].x;
+
+    //Density
+    float4 d = DensityTex[id];
+    float4 d_T = DensityTex[id_T] * obstacle_T;
+    float4 d_B = DensityTex[id_B] * obstacle_R;
+    float4 d_R = DensityTex[id_R] * obstacle_B;
+    float4 d_L = DensityTex[id_L] * obstacle_L;
+	
+
+    //Diffusion
+    float a = _deltaTime * Curl * size * size;
+    float c = 1 + 4 * a;
+    //float4 dnew = (d + size * _deltaTime * (d_T + d_B + d_R + d_L)) / (1 + 4.0 * size * _deltaTime);
+    float4 dnew = (a * (d_T + d_B + d_R + d_L)) / c;
+    dnew *= obstacle;
+
+    //Assign
+    DensityTex[id] = dnew;
+}
+
+
+[numthreads(16,16,1)]
+void Kernel_Divergence (uint3 Id : SV_DispatchThreadid)
+{
+    //Grid positions
+    int2 id = int2(Id.xy);
+    int2 id_T = id + off_T;
+    int2 id_B = id + off_B;
+    int2 id_L = id + off_L;
+    int2 id_R = id + off_R;
+    //Obstacle
+    float obstacle_T = ObstacleTex[id_T].x;
+    float obstacle_R = ObstacleTex[id_R].x;
+    float obstacle_B = ObstacleTex[id_B].x;
+    float obstacle_L = ObstacleTex[id_L].x;
+    //Velocity
+    float2 v_T = VelocityTex[id_T].xy * obstacle_T;
+    float2 v_B = VelocityTex[id_B].xy * obstacle_R;
+    float2 v_R = VelocityTex[id_R].xy * obstacle_B;
+    float2 v_L = VelocityTex[id_L].xy * obstacle_L;
+
+    //Divergence
+    float halfPixelSize = ( 1.0/float(size) ) * 0.5;
+    float div = halfPixelSize * (v_R.x - v_L.x + v_T.y - v_B.y);
+    DivergenceTex[id.xy] = div;
+}
+[numthreads(16,16,1)]
+void Kernel_Jacobi (uint3 id : SV_DispatchThreadid)
+{
+    //Grid positions
+    int2 id_T = id + off_T;
+    int2 id_B = id + off_B;
+    int2 id_L = id + off_L;
+    int2 id_R = id + off_R;
+    //Obstacle
+    float obstacle_T = ObstacleTex[id_T].x;
+    float obstacle_R = ObstacleTex[id_R].x;
+    float obstacle_B = ObstacleTex[id_B].x;
+    float obstacle_L = ObstacleTex[id_L].x;
+    //Pressure
+    float p = PressureTex[id.xy].x;
+    float p_T = lerp( p , PressureTex[id_T].x , obstacle_T ) ;
+    float p_B = lerp( p , PressureTex[id_B].x , obstacle_R ) ;
+    float p_R = lerp( p , PressureTex[id_R].x , obstacle_B ) ;
+    float p_L = lerp( p , PressureTex[id_L].x , obstacle_L ) ;
+
+    //Update pressure
+    float div = DivergenceTex[id.xy].x * size;
+    p = (p_L + p_R + p_B + p_T - div ) / 4.0;
+    PressureTex[id.xy] = p;
+}
+
+[numthreads(16,16,1)]
+void Kernel_SubtractGradient (uint3 Id : SV_DispatchThreadid)
+{
+    //Grid positions
+    int2 id = int2(Id.xy);
+    int2 id_T = id + off_T;
+    int2 id_B = id + off_B;
+    int2 id_L = id + off_L;
+    int2 id_R = id + off_R;
+    //Obstacle
+    float obstacle_T = ObstacleTex[id_T].x;
+    float obstacle_R = ObstacleTex[id_R].x;
+    float obstacle_B = ObstacleTex[id_B].x;
+    float obstacle_L = ObstacleTex[id_L].x;
+    //Pressure
+    float p = PressureTex[id.xy].x;
+    float p_T = lerp( p , PressureTex[id_T].x , obstacle_T ) ;
+    float p_B = lerp( p , PressureTex[id_B].x , obstacle_R ) ;
+    float p_R = lerp( p , PressureTex[id_R].x , obstacle_B ) ;
+    float p_L = lerp( p , PressureTex[id_L].x , obstacle_L ) ;
+
+    // Subtract gradient to update velocity
+    float2 velocity = VelocityTex[id.xy].xy;
+    float2 grad = float2(p_R - p_L, p_T - p_B) * Curl;
+    velocity -= grad;
+    VelocityTex[id.xy] = velocity; 
+}
+[numthreads(16, 16, 1)]
+void Kernel_LaplaceProject(uint3 Id : SV_DispatchThreadID)
+{
+    //Grid positions
+    float2 id_T = Id + off_T;
+    float2 id_B = Id + off_B;
+    float2 id_L = Id + off_L;
+    float2 id_R = Id + off_R;
+    // Obstacle
+    float obstacle_T = ObstacleTex[id_T].x;
+    float obstacle_R = ObstacleTex[id_R].x;
+    float obstacle_B = ObstacleTex[id_B].x;
+    float obstacle_L = ObstacleTex[id_L].x;
+    // Pressure
+    float p = PressureTex[Id.xy].x;
+    float p_T = lerp(p, PressureTex[id_T].x, obstacle_T);
+    float p_B = lerp(p, PressureTex[id_B].x, obstacle_R);
+    float p_R = lerp(p, PressureTex[id_R].x, obstacle_B);
+    float p_L = lerp(p, PressureTex[id_L].x, obstacle_L);
+    //Velocity
+    float2 v_T = VelocityTex[id_T].xy * obstacle_T;
+    float2 v_B = VelocityTex[id_B].xy * obstacle_R;
+    float2 v_R = VelocityTex[id_R].xy * obstacle_B;
+    float2 v_L = VelocityTex[id_L].xy * obstacle_L;
+    
+    // Divergence
+    float halfPixelSize = (1.0 / float(size)) * 0.5;
+    float div = halfPixelSize * (v_R.x - v_L.x + v_T.y - v_B.y);
+    
+    //Update pressure
+    //div *= size;
+    //p = (p_L + p_R + p_B + p_T - div) / 4.0;
+    //PressureTex[id.xy] = p;
+    
+    // Subtract gradient to update velocity
+    float2 velocity = VelocityTex[Id.xy].xy;
+    float2 grad = float2(p_R - p_L, p_T - p_B) * Curl;
+    velocity -= grad;
+    VelocityTex[Id.xy].xy = velocity;
+}
+
+#pragma region Input
+//===========================Input================================//
+
+[numthreads(16,16,1)]
+void Kernel_UserInput_Add (uint3 id : SV_DispatchThreadid)
+{
+    for (int i = 0; i < PosAmount; i++)
+    {
+        //mouse position
+        float2 center = 0.5;
+        float2 uv = float2(id.xy) / float(size);
+        float2 sphereUV = ( spherePositions[i] + center ); //sphere world position to 0-1 uv space
+
+        float2 velocity = VelocityTex[id.xy].xy;
+        float4 density = DensityTex[id.xy];
+        float obstacle = ObstacleTex[id.xy].x;
+
+        //Impulse factor
+        float dist = distance(uv,sphereUV);
+        dist = 1.0-smoothstep(dist, 0.0, forceRange);
+        float impulse = BrushDensity * dist * obstacle;
+        
+        //Buoyancy, making the fluid goes out from center, instead of having gravity
+        //float2 cdir = uv - center;  
+        //velocity += _deltaTime * density.a * cdir * 2.0;
+        
+        //Add dye density (Add)
+        float speed = distance(spheresVelocity[i],0);
+        density.a += impulse * speed;
+
+        //Add dye color (might give a pair color with the pos[i])
+        density.rgb = BlendColor(density.rgb, dyeColors[i], impulse * speed);
+        
+        //Assign
+        DensityTex[id.xy] = density;
+    }
+}
+
+[numthreads(16,16,1)]
+void Kernel_UserInput_Move (uint3 id : SV_DispatchThreadid)
+{
+    for (int i = 0; i < PosAmount; i++)
+    {
+        if(Disables[i] = 1)
+        {
+            //mouse position
+            float2 center = 0.5;
+            float2 uv = float2(id.xy) / float(size);
+            float2 sphereUV = ( spherePositions[i] + center ); //sphere world position to 0-1 uv space
+
+            float2 velocity = VelocityTex[id.xy].xy;
+            float4 density = DensityTex[id.xy];
+            float obstacle = ObstacleTex[id.xy].x;
+
+            //Impulse factor
+            float dist = distance(uv,sphereUV);
+            dist = 1.0-smoothstep(dist, 0.0, forceRange);
+            float impulse = forceIntensity * dist * obstacle;
+
+            //Add mouse velocity
+            float2 dir = spheresVelocity[i];
+            velocity += dir * impulse;
+
+            //Assign
+            VelocityTex[id.xy] = velocity;
+        }
+        
+    }
+}
+#pragma endregion 
+
+[numthreads(16,16,1)]
+void Kernel_FadeDensity(uint3 id : SV_DispatchThreadid) 
+{
+    float DensityfadeAmount = 1 + (Densityfade * _deltaTime); // Adjust the fade amount as needed
+
+    float4 density = DensityTex[id.xy];
+    float2 velocity = VelocityTex[id.xy].xy;
+    float2 pressure = PressureTex[id.xy];
+
+    
+    // Fade the magnitudes towards 0
+    density.rgb = density.rgb / DensityfadeAmount;
+    density.a = density.a / DensityfadeAmount;
+    pressure.xy = pressure.xy / DensityfadeAmount;
+
+    if(density.a <= 0.1f)
+        velocity.xy = velocity.xy / (1 + ((Densityfade * _deltaTime) * 5));
+        //velocity.xy = velocity.xy / DensityfadeAmount;
+    
+    // Update the texture values
+    DensityTex[id.xy] = density;
+    VelocityTex[id.xy] = velocity;
+    //PressureTex[id.xy] = pressure;
+
+
+    // Convert RGB color to grayscale
+    float grayValue = dot(density.rgb, float3(1,1,1));
+    float4 vintageColor = lerp(float4(0, 0, 0, density.a), float4(1, 1, 1, density.a), grayValue); // Black and white lerp with matching alpha
+    HeightTex[id.xy] = vintageColor;
+}
+
+[numthreads(8, 8, 8)]
+void Kernel_StartFlowFromCenter(uint3 id : SV_DispatchThreadID)
+{
+    int3 center = int3(size / 2, size / 2, size / 2);
+    float3 pos = float3(id);
+
+    float3 uv = pos / size;
+    float3 centerUV = float3(center) / size;
+
+    float3 offset = pos - center;
+    float dist = length(offset);
+    float maxRadius = size * 0.1; // 10% of the volume size
+
+    if (dist < maxRadius)
+    {
+        float impulse = 1.0 - (dist / maxRadius); // stronger at the center
+        float4 density = DensityTex[id];
+        float3 velocity = VelocityTex[id];
+
+        float4 centerColor = float4(1.0, 0.4, 0.1, 1.0); // warm color
+        density.rgb = BlendColor(density.rgb, centerColor.rgb, impulse);
+        density.a += impulse * 5.0; // increase density alpha
+        DensityTex[id] = density;
+
+        float3 outVelocity = normalize(offset) * impulse * 10.0;
+        VelocityTex[id] += outVelocity;
+    }
+}

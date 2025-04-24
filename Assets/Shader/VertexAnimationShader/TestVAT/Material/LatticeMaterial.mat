@@ -37,8 +37,8 @@ Material:
     - _LatticeSpacing: 1
     - _LatticeThickness: 60.39
     - _LatticeThreshold: 0.5
-    - _ScaleFactor: 1.1
-    - _Strength: 0.1
+    - _ScaleFactor: 0.3
+    - _Strength: 1
     m_Colors:
     - _AxisInfluence: {r: 1, g: 1, b: 1, a: 0}
     - _BackgroundColor: {r: 1, g: 1, b: 1, a: 1}

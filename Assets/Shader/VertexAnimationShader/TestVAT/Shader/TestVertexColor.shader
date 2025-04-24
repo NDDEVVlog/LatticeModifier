@@ -67,3 +67,4 @@ Shader "Unlit/MoveBlackVertices"
         }
     }
 }
+

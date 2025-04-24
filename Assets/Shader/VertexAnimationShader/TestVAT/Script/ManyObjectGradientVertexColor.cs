@@ -124,4 +124,37 @@ public class ManyObjectGradientVertexColor : MonoBehaviour
         Gizmos.color = Color.green;
         Gizmos.DrawWireCube(transform.position, boxSize);
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                
+
+
+
+
+
+
+
+
 }
+
+
+
+
+
+                                        
+
+
+
+
+                                        
