@@ -281,15 +281,15 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   TextureRenderSize: 1024
   solverIterations: 20
-  Curl: 50
+  Curl: 1
   pixelSize: 64
-  backgroundAlpha: 0
+  backgroundAlpha: 0.293
   TimeScale: 1
-  Pressure: 0.5
+  Pressure: 0.8
   dissipation: 0.1
   shader: {fileID: 7200000, guid: 6d4b73896bb73c1439e6d50929e5901f, type: 3}
   ResultTex: {fileID: 8400000, guid: 3623fa192e83a9d4385a21d996563309, type: 2}
-  obstacleTex: {fileID: 2800000, guid: 29df183e70c1a084dbeee08aff16c50f, type: 3}
+  obstacleTex: {fileID: 2800000, guid: 07caa0e50b08bbf498a5997e13935e38, type: 3}
   matResult: {fileID: 2100000, guid: f8b3f5848a8eeb5408a87d4756addb69, type: 2}
   MultipleSpheres:
   - Disable: 1
@@ -336,15 +336,15 @@ MonoBehaviour:
   SpawnKey: 323
   MoveKey: 324
   CombineKey: 102
-  FluidSimType: 0
+  FluidSimType: 1
   debugType: 0
   DiffuseToggle: 1
   AdvectionToggle: 1
   UserInputToggle: 1
   DivergenceToggle: 1
-  JacobiToggle: 0
-  CurlToggle: 0
-  VorticityToggle: 0
+  JacobiToggle: 1
+  CurlToggle: 1
+  VorticityToggle: 1
   StartFlowFromCenterToggle: 0
   PressureToggle: 1
   FadeDensityToggle: 1

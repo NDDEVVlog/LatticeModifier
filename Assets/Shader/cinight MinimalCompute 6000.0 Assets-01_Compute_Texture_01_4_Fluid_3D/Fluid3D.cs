@@ -4,6 +4,8 @@ Nice tutorial understanding basic fluid concept: https://www.youtube.com/watch?v
 Very nice tutorial for artists to understand the maths: https://shahriyarshahrabi.medium.com/gentle-introduction-to-fluid-simulation-for-programmers-and-technical-artists-7c0045c40bac
 */
 
+using System.ComponentModel;
+using UnityEditor.ShaderGraph.Internal;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 
@@ -14,6 +16,8 @@ public class Fluid3D : MonoBehaviour
 	public int size = 256;
 	public Transform sphere; //represents mouse
 	public int solverIterations = 50;
+	[Range(0,1.0f)]
+	public float pressure = 0.8f;
 
 	[Header("Force Settings")]
 	public float forceIntensity = 200f;
@@ -33,17 +37,23 @@ public class Fluid3D : MonoBehaviour
 	public RenderTexture densityTex;
 	public RenderTexture pressureTex;
 	public RenderTexture divergenceTex;
+	public RenderTexture curlTex;
 
-	private int dispatchSize = 0;
-	private int kernel_Init = 0;
-	private int kernel_Diffusion = 0;
-	private int kernel_UserInput = 0;
-	private int kernel_Jacobi = 0;
-	private int kernel_Advection = 0;
-	private int kernel_Divergence = 0;
-	private int kernel_SubtractGradient = 0;
-	private int kernel_StartFlowFromCenter = 0;
-	private int kernal_FadeDensity = 0;
+
+	[SerializeField] private int dispatchSize = 0;
+	[SerializeField] private int kernel_Init = 0;
+	[SerializeField] private int kernel_Diffusion = 0;
+	[SerializeField] private int kernel_UserInput = 0;
+	[SerializeField] private int kernel_Jacobi = 0;
+	[SerializeField] private int kernel_Advection = 0;
+	[SerializeField] private int kernel_Divergence = 0;
+	[SerializeField] private int kernel_SubtractGradient = 0;
+	[SerializeField] private int kernel_StartFlowFromCenter = 0;
+	[SerializeField] private int kernal_FadeDensity = 0;
+	[SerializeField] private int kernel_Curl = 0;
+	[SerializeField] private int kernel_Vorticity = 0;
+	[SerializeField] private int kernel_PressureInit = 0;
+
 
 	
 	
@@ -74,6 +84,7 @@ public class Fluid3D : MonoBehaviour
 		densityTex = CreateTexture(GraphicsFormat.R16G16B16A16_SFloat); //float3 color , float density
 		pressureTex = CreateTexture(GraphicsFormat.R16_SFloat); //float pressure
 		divergenceTex = CreateTexture(GraphicsFormat.R16_SFloat); //float divergence
+		curlTex = CreateTexture(GraphicsFormat.R16G16B16A16_SFloat);
 
 		//Output
 		matResult.SetTexture ("_MainTex", densityTex);
@@ -84,6 +95,7 @@ public class Fluid3D : MonoBehaviour
 		shader.SetFloat("forceRange",forceRange);
 		shader.SetFloat("Densityfade", DensityFade);
         shader.SetFloat("Curl", Curl);
+		shader.SetFloat("Pressure",pressure);
 
 		//Set texture for compute shader
 		/* 
@@ -95,6 +107,7 @@ public class Fluid3D : MonoBehaviour
 		shader.SetTexture (kernel_Init, "DensityTex", densityTex);
 		shader.SetTexture (kernel_Init, "PressureTex", pressureTex);
 		shader.SetTexture (kernel_Init, "DivergenceTex", divergenceTex);
+		shader.SetTexture (kernel_Init, "CurlTex", curlTex);
 
 		kernel_Diffusion = shader.FindKernel ("Kernel_Diffusion");
 		shader.SetTexture (kernel_Diffusion, "DensityTex", densityTex);
@@ -128,6 +141,17 @@ public class Fluid3D : MonoBehaviour
 		shader.SetTexture(kernal_FadeDensity, "PressureTex", pressureTex);
 		shader.SetTexture(kernal_FadeDensity, "VelocityTex", velocityTex);
 		shader.SetTexture(kernal_FadeDensity, "DensityTex", densityTex);
+
+		kernel_PressureInit = shader.FindKernel("Kernel_PressureInit"); // Fix typo: "kernal" to "kernel"
+		shader.SetTexture(kernel_PressureInit, "PressureTex", pressureTex);
+
+		kernel_Vorticity = shader.FindKernel("Kernel_Vorticity");
+		shader.SetTexture (kernel_Vorticity, "VelocityTex", velocityTex);
+		shader.SetTexture (kernel_Vorticity, "CurlTex", curlTex);
+
+		kernel_Curl = shader.FindKernel("Kernel_Curl");
+		shader.SetTexture (kernel_Curl, "VelocityTex", velocityTex);
+		shader.SetTexture (kernel_Curl, "CurlTex", curlTex);
 		//Init data texture value
 		dispatchSize = Mathf.CeilToInt(size / 8);
 		DispatchCompute (kernel_Init);
@@ -156,18 +180,26 @@ public class Fluid3D : MonoBehaviour
 			shader.SetVector("dyeColor", newColor);
 
 		//Run compute shader
-		DispatchCompute (kernel_Diffusion);
-		DispatchCompute (kernel_Advection);
-		DispatchCompute (kernel_UserInput);
+		DispatchCompute (kernel_StartFlowFromCenter);
+		
+		//
+		DispatchCompute (kernel_Curl);
+		//DispatchCompute (kernel_Vorticity);
 		DispatchCompute (kernel_Divergence);
+		
+		DispatchCompute (kernel_UserInput);
+		DispatchCompute (kernel_PressureInit);
+		
 		for(int i=0; i<solverIterations; i++)
 		{
 			DispatchCompute (kernel_Jacobi);
 		}
 		DispatchCompute (kernel_SubtractGradient);
-		if(isFadeDensity) DispatchCompute(kernal_FadeDensity);
-		DispatchCompute (kernel_StartFlowFromCenter);
+		DispatchCompute (kernel_Diffusion);
+		DispatchCompute (kernel_Advection);
 		
+		
+		if(isFadeDensity) DispatchCompute(kernal_FadeDensity);
 
 		
 		//Save the previous position for velocity

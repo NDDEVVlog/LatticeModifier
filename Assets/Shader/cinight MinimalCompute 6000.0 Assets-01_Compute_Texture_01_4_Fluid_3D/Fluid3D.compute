@@ -1,12 +1,15 @@
 #pragma kernel Kernel_Init
 #pragma kernel Kernel_Diffusion
-#pragma kernel Kernel_UserInput
-#pragma kernel Kernel_Divergence
-#pragma kernel Kernel_Jacobi
 #pragma kernel Kernel_Advection
-#pragma kernel Kernel_SubtractGradient
 #pragma kernel Kernel_FadeDensity
+#pragma kernel Kernel_Divergence
+#pragma kernel Kernel_SubtractGradient
+#pragma kernel Kernel_Jacobi
 #pragma kernel Kernel_StartFlowFromCenter
+#pragma kernel Kernel_Curl
+#pragma kernel Kernel_Vorticity
+#pragma kernel Kernel_PressureInit
+#pragma kernel Kernel_UserInput
 
 
 float3 spherePos;
@@ -20,21 +23,25 @@ float forceIntensity;
 float forceRange;
 
 float Densityfade;
+float Pressure;
 
+// Texture declarations
 RWTexture3D<float3> VelocityTex;
-RWTexture3D<float4> DensityTex; //r,g,b is dye color, a is density
-RWTexture3D<float> PressureTex;
+RWTexture3D<float4> DensityTex; // r,g,b is dye color, a is density
+RWTexture3D<float> PressureTex; // Only declared once
 RWTexture3D<float> DivergenceTex;
+RWTexture3D<float3> CurlTex;
+
 
 uint size; //texture resolution
 
 //Neighbour pixel offsets: top,bottom,left,right
-#define off_T int3(0,1,0);
-#define off_B int3(0,-1,0);
-#define off_L int3(-1,0,0);
-#define off_R int3(1,0,0);
-#define off_F int3(0,0,1);
-#define off_K int3(0,0,-1);
+static const int3 off_T = int3(0, 1, 0);
+static const int3 off_B = int3(0, -1, 0);
+static const int3 off_L = int3(-1, 0, 0);
+static const int3 off_R = int3(1, 0, 0);
+static const int3 off_F = int3(0, 0, 1);
+static const int3 off_K = int3(0, 0, -1);
 
 float3 BlendColor(float3 col1, float3 col2, float factor)
 {
@@ -64,6 +71,7 @@ void Kernel_Init (uint3 id : SV_DispatchThreadid)
 	VelocityTex[id] = 0;
 	PressureTex[id] = 0;
 	DivergenceTex[id] = 0;
+	CurlTex[id] = 0;
 }
 //===========================================================
 [numthreads(8,8,8)]
@@ -98,7 +106,7 @@ void Kernel_Diffusion (uint3 Id : SV_DispatchThreadid)
 	float4 d_K = DensityTex[id_K] * obstacle_K;
 	
 	//New density value
-	float4 dnew = (d + size * Curl *_deltaTime * (d_T + d_B + d_R + d_L + d_F + d_K)) / (1 + 6.0 * size * _deltaTime);
+	float4 dnew = (d + size  /**Curl*/ *_deltaTime * (d_T + d_B + d_R + d_L + d_F + d_K)) / (1 + 6.0 * size * _deltaTime);
 	dnew *= obstacle;
 
 	//Assign
@@ -269,7 +277,7 @@ void Kernel_SubtractGradient (uint3 Id : SV_DispatchThreadid)
 	//Pressure affect velocity, where the curl happens
 	float3 velocity = VelocityTex[id].xyz;
 	// 0.2 - feels like thicker, 1.0 - more flowy ( Curl Size)
-	float3 grad = float3(p_R - p_L, p_T - p_B, p_F - p_K) * Curl;
+	float3 grad = float3(p_R - p_L, p_T - p_B, p_F - p_K);// * Curl;
 	velocity -= grad;
 	VelocityTex[id] = float3(velocity); 
 }
@@ -347,31 +355,66 @@ void Kernel_StartFlowFromCenter(uint3 id : SV_DispatchThreadID)
     DensityTex[id] = density;
 }
 
-// float3 center = float3(size * 0.5, size * 0.5, size * 0.5);
-//     float3 pos = float3(id);
-//     float obstacle = GetObstacle(id);
 
-//     // Calculate direction from center
-//     float3 dir = pos - center;
-//     float dist = length(dir);
-//     float maxDist = size * 0.3; // Approximate max distance to boundary
+[numthreads(8, 8, 8)]
+void Kernel_Curl(uint3 id : SV_DispatchThreadID)
+{
+    float3 velocityL = VelocityTex[id + off_L].yzx;
+    float3 velocityR = VelocityTex[id + off_R].yzx;
+    float3 velocityT = VelocityTex[id + off_T].zxy;
+    float3 velocityB = VelocityTex[id + off_B].zxy;
+    float3 velocityF = VelocityTex[id + off_F].xyz;
+    float3 velocityK = VelocityTex[id + off_K].xyz;
 
-//     // Normalize direction and apply velocity magnitude
-//     float3 velocity = (dist > 0.0) ? normalize(dir) * forceIntensity * 10.0 : float3(0,0,0);
-//     // Fade velocity near boundaries to avoid artifacts
-//     velocity *= smoothstep(maxDist, maxDist * 0.5, dist) * obstacle;
+    float3 curl;
+    curl.x = (velocityT.z - velocityB.z) - (velocityF.y - velocityK.y);
+    curl.y = (velocityF.x - velocityK.x) - (velocityR.z - velocityL.z);
+    curl.z = (velocityR.y - velocityL.y) - (velocityT.x - velocityB.x);
 
-//     // Set initial velocity
-//     VelocityTex[id] = velocity;
+    CurlTex[id] = float4(curl * 0.5, 1.0);
+}
 
-//     // Add initial density and dye at the center
-//     float4 density = DensityTex[id];
-//     float densityRadius = size * 0.1; // Small radius for initial density
-//     if (dist < densityRadius)
-//     {
-//         density.a = 1.0 * (1.0 - dist / densityRadius) * obstacle; // Fade density
-//         density.rgb = dyeColor; // Use provided dye color
-//     }
-//     DensityTex[id] = density;
+[numthreads(8, 8, 8)]
+void Kernel_Vorticity(uint3 id : SV_DispatchThreadID)
+{
+    // Sample curl values at neighboring points
+    float3 curl_L = CurlTex[id + off_L].xyz;
+    float3 curl_R = CurlTex[id + off_R].xyz;
+    float3 curl_T = CurlTex[id + off_T].xyz;
+    float3 curl_B = CurlTex[id + off_B].xyz;
+    float3 curl_F = CurlTex[id + off_F].xyz;
+    float3 curl_K = CurlTex[id + off_K].xyz;
+    
+    // Calculate gradient of curl magnitude
+    float3 curlGradient;
+    curlGradient.x = length(curl_R) - length(curl_L);
+    curlGradient.y = length(curl_T) - length(curl_B);
+    curlGradient.z = length(curl_F) - length(curl_K);
+    
+    // Normalize gradient and compute force
+    float3 curlCenter = CurlTex[id].xyz;
+    float curlMagnitude = length(curlCenter);
+    float3 force = normalize(curlGradient) * curlMagnitude * Curl;
+    
+    // Apply vorticity confinement (cross product with curl)
+    force = cross(normalize(curlCenter), force);
+    
+    // Sample current velocity
+    float3 velocity = VelocityTex[id].xyz;
+    
+    // Update velocity with vorticity force
+    velocity += force * _deltaTime;
+    
+    // Clamp velocity
+    velocity = clamp(velocity, -1000.0, 1000.0);
+    
+    // Store updated velocity
+    VelocityTex[id] = float4(velocity, 0.0);
+}
 
-
+[numthreads(8, 8, 8)]
+void Kernel_PressureInit(uint3 id : SV_DispatchThreadID)
+{	
+	//float val = PressureTex[id.xyz];
+    PressureTex[id] *=  Pressure;
+}
