@@ -274,6 +274,7 @@ public class FluidSim : MonoBehaviour
         if(DivergenceToggle) DispatchCompute (kernel_Divergence);
         
         if (PressureToggle) DispatchCompute(Kernel_PressureInit);
+        
         for(int i=0; i<solverIterations; i++)
         {
             if(JacobiToggle) DispatchCompute (kernel_Jacobi);

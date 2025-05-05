@@ -31,6 +31,8 @@ public class Fluid3D : MonoBehaviour
 	public float DensityFade = 0.1f;
 
 
+	public Color fountainColor;
+
 	[Space(10)]
 
 	public RenderTexture velocityTex;
@@ -163,10 +165,11 @@ public class Fluid3D : MonoBehaviour
 		//Send sphere (mouse) position
 		Vector3 npos = new Vector3( sphere.position.x / transform.lossyScale.x, sphere.position.y / transform.lossyScale.y, sphere.position.z / transform.lossyScale.z );
 		shader.SetVector("spherePos",npos);
-
+	
 		//Send sphere (mouse) velocity
 		Vector3 velocity = npos - sphere_prevPos;
 		shader.SetVector("sphereVelocity",velocity);
+		shader.SetVector("fountainColor", fountainColor);
 		shader.SetFloat("_deltaTime", Time.fixedDeltaTime);
 		    // Calculate time-based color
 			float time = Time.time * 0.5f;

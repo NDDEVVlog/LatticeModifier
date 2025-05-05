@@ -226,7 +226,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!4 &270161264
 Transform:
   m_ObjectHideFlags: 0
@@ -792,14 +792,30 @@ MonoBehaviour:
   size: 128
   sphere: {fileID: 270161264}
   solverIterations: 50
+  pressure: 0.8
   forceIntensity: 300
   forceRange: 0.005
   Curl: 1
   DensityFade: 0.1
+  fountainColor: {r: 0.43632552, g: 1, b: 0.25471687, a: 0}
   velocityTex: {fileID: 0}
   densityTex: {fileID: 0}
   pressureTex: {fileID: 0}
   divergenceTex: {fileID: 0}
+  curlTex: {fileID: 0}
+  dispatchSize: 0
+  kernel_Init: 0
+  kernel_Diffusion: 0
+  kernel_UserInput: 0
+  kernel_Jacobi: 0
+  kernel_Advection: 0
+  kernel_Divergence: 0
+  kernel_SubtractGradient: 0
+  kernel_StartFlowFromCenter: 0
+  kernal_FadeDensity: 0
+  kernel_Curl: 0
+  kernel_Vorticity: 0
+  kernel_PressureInit: 0
   isFadeDensity: 0
 --- !u!23 &1794605841
 MeshRenderer:

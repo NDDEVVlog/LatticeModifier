@@ -25,6 +25,8 @@ float forceRange;
 float Densityfade;
 float Pressure;
 
+float3 fountainColor;
+
 // Texture declarations
 RWTexture3D<float3> VelocityTex;
 RWTexture3D<float4> DensityTex; // r,g,b is dye color, a is density
@@ -338,14 +340,10 @@ void Kernel_StartFlowFromCenter(uint3 id : SV_DispatchThreadID)
     {
         // Add velocity in positive X-direction
         float strength = 1.0 - 1 / flowRadius; // Fade with distance
-        velocity += float3(0.0, -forceIntensity * 5.0 * strength, 0.0) * obstacle * _deltaTime;
+        velocity += float3(0.0, forceIntensity * 5.0 * strength, 0.0) * obstacle * _deltaTime;
 
         // Add time-varying green-based dye density
-        float3 newDyeColor = float3(
-            0,       // Red
-            sin(_deltaTime), // Green
-            1  // Blue
-        );
+        float3 newDyeColor = fountainColor;
         density.a = max(density.a, strength * obstacle); // Continuous source
         density.rgb = BlendColor(density.rgb, newDyeColor, strength);
     }

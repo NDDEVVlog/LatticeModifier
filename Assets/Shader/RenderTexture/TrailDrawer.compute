@@ -1,0 +1,31 @@
+#pragma kernel CSMain
+
+RWTexture2D<float4> Result;
+float2 MouseUV;
+float DeltaTime;
+float FadeDuration;
+int TrailRadius;
+float4 TrailColor;
+
+[numthreads(8,8,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    uint2 texSize;
+    Result.GetDimensions(texSize.x, texSize.y);
+
+    if (id.x >= texSize.x || id.y >= texSize.y) return;
+
+    float2 uv = float2(id.x, id.y) / texSize;
+    float dist = distance(uv, MouseUV);
+
+    float4 current = Result[id.xy];
+    current.a = max(0, current.a - DeltaTime / FadeDuration);
+
+    if (dist < (float)TrailRadius / texSize.x)
+    {
+        current.rgb = TrailColor.rgb;
+        current.a = 1.0;
+    }
+
+    Result[id.xy] = current;
+}

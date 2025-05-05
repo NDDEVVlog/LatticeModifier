@@ -142,7 +142,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!4 &18446215
 Transform:
   m_ObjectHideFlags: 0
@@ -289,7 +289,7 @@ MonoBehaviour:
   dissipation: 0.1
   shader: {fileID: 7200000, guid: 6d4b73896bb73c1439e6d50929e5901f, type: 3}
   ResultTex: {fileID: 8400000, guid: 3623fa192e83a9d4385a21d996563309, type: 2}
-  obstacleTex: {fileID: 2800000, guid: 07caa0e50b08bbf498a5997e13935e38, type: 3}
+  obstacleTex: {fileID: 2800000, guid: 29df183e70c1a084dbeee08aff16c50f, type: 3}
   matResult: {fileID: 2100000, guid: f8b3f5848a8eeb5408a87d4756addb69, type: 2}
   MultipleSpheres:
   - Disable: 1
@@ -991,7 +991,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!4 &1369499515
 Transform:
   m_ObjectHideFlags: 0
